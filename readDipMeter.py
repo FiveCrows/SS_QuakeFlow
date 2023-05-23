@@ -1,6 +1,7 @@
 import numpy as np
 import cv2
 import statistics
+import os
 
 #Hough Circle Detection params#
 minDist = 10 #the minimum distance between circles
@@ -33,9 +34,10 @@ tr = [np.float32(1034),float(3768)]
 br = [np.float32(1046),float(14148)]
 bl = [np.float32(461), float(14151)]
 yJump = 1287
+(os.path.dirname(os.path.abspath(__name__)))
 
-img = cv2.imread( 'dipmeter.jpg')
-greyImg = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)#cv2 reads this format
+img = cv2.imread( 'dipMeters/dipmeter.jpg')
+print(img)
 #identify circles
 
 
@@ -45,23 +47,17 @@ greyImg = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)#cv2 reads this format
 #lines = cv2.HoughLinesP(greyImg,rho = 1,theta = 1*np.pi/180,threshold = 100000,minLineLength = 500,maxLineGap = 100)
 #for line in lines: cv2.line(img,(line[0,0],line[0,1]),(line[0,2],line[0,3]),red) 
 #find circles
-blurImg = cv2.blur(greyImg,(3,3))# to help identify circles
-circles = cv2.HoughCircles(blurImg,cv2.HOUGH_GRADIENT,
-                        dp=1,
-                        minDist = minDist, 
-                        param1 = cannyCircleParam,
-                        param2 =circSensitivityParam,
-                        minRadius = circRadMin, 
-                        maxRadius = circRadMax)[0]
 
 def straightenRegion(img,tl,tr,br,yJump, top,bottom):
+        left = int(tl[0])#get left of region
+        right = int(max(tr[0],br[0]))#get right of region
         dydx= (tr[1]-tl[1])/(tr[0]-tl[0])# calculate next pixel jump
         adj = 0.5 - dydx*(yJump-tl[0])        #calc next pixel jump
         src = np.array([[tl[0],tl[1]+adj],[tr[0],tr[1]],br],dtype= np.float32)#actual triangle of image 
         dest = np.array([tl,[tr[0],tl[1]],[tr[0],br[1]]],dtype= np.float32)   #to a right triangle
         trans = cv2.getAffineTransform(src,dest)#get transform carry source triangle to destination triangle
         straight =cv2.warpAffine(img[top:bottom,:],trans,(img.shape[1],img.shape[0]),0)#transform
-        straight = cv2.threshold(straight,127,255,cv2.THRESH_BINARY)[1]#black or white 
+        straight = cv2.threshold(straight,127,255,cv2.THRESH_BINARY)[1][top:bottom,left:right,:]#black or white 
         return straight
         
 def hasFill(img,crosspoint):
@@ -76,7 +72,11 @@ def hasFill(img,crosspoint):
         return (np.sum(img[t,l] +img[t,r]+img[b,l]+img[b,r])<500)                
 
 
-def getXaxis(img_in,top,bottom,left,right):
+def getXaxis(img_in):
+        left = 0 
+        top = 0
+        bottom = img_in.shape[0]
+        right = img_in.shape[1]
         #image should be single channel!
         try:
                 img = cv2.cvtColor(img_in.copy(),cv2.COLOR_BGR2GRAY)#singleChannel
@@ -210,7 +210,18 @@ def openCmismatch(img,c):
         #diff = cv2.subtract(box,cv2.circle(cv2.circle(box,[y,x],r,white,-1),[y,x],r,black,1))#compare to white circle with outer black        
         return diff
 
-openMismatch = []
+
+img = straightenRegion(img,tl,tr,br,yJump, top,bottom)
+greyImg = cv2.cvtColor(straight,cv2.COLOR_BGR2GRAY)#cv2 reads this format
+blurImg = cv2.blur(greyImg,(3,3))# to help identify circles
+circles = cv2.HoughCircles(blurImg,cv2.HOUGH_GRADIENT,
+                        dp=1,
+                        minDist = minDist, 
+                        param1 = cannyCircleParam,
+                        param2 =circSensitivityParam,
+                        minRadius = circRadMin, 
+                        maxRadius = circRadMax)[0]
+
 for c in circles:
         if hasFill(img,c[:2]):                                
                 angle = getCircleAngle(img,c)                
