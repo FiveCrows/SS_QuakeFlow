@@ -1,8 +1,0 @@
-tensorflow
-matplotlib
-pandas
-tqdm
-scipy
-pymongo
-obspy
-

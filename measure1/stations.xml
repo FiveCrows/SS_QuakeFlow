@@ -1,0 +1,4 @@
+#Network|Station|Location|Channel|Latitude|Longitude|Elevation|Depth|Azimuth|Dip|SensorDescription|Scale|ScaleFreq|ScaleUnits|SampleRate|StartTime|EndTime
+XX|TEST||LHE|40.7666|-111.8460824|1700.0|0.0|0.0|-90.0||1509906780.0735059|0.02|M/S|1000.0||
+XX|TEST||LHN|40.7666|-111.8460824|1700.0|0.0|0.0|-90.0||1509906780.0735059|0.02|M/S|1000.0||
+XX|TEST||LHZ|40.7666|-111.8460824|1700.0|0.0|0.0|-90.0||1509906780.0735059|0.02|M/S|1000.0||

@@ -105,7 +105,6 @@ def pred_fn(args, data_reader, figure_dir=None, prob_dir=None, log_dir=None):
             batch_size = args.batch_size
         dataset = data_reader.dataset(batch_size)
         batch = tf.compat.v1.data.make_one_shot_iterator(dataset).get_next()
-
     config = ModelConfig(X_shape=data_reader.X_shape)
     with open(os.path.join(log_dir, "config.log"), "w") as fp:
         fp.write("\n".join("%s: %s" % item for item in vars(config).items()))
