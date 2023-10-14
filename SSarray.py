@@ -9,29 +9,31 @@ import obspy
 import requests
 import sys
 import os
+#import simplekml (moved to gen kml function)
 import laspy
 import pandas as pd
 from pyproj import Transformer 
 from obspy.core.inventory import Inventory, Network, Station, Channel, Response
 from obspy.clients.nrl import NRL
-
+import utm
 api_openTopography = "143a4c09555886ceb9760b6cf432902c"
 
 class SS_inventory(Inventory):
-    def __init__(self, dir = "SS_inventory", fr_subDir = "SS_frTests", net_subDir = "UofUmockTest1"):
+    def __init__(self, dir = "SS_inventory", fr_subDir = "SS_frTests", net_subDir = "UofUmockTest2"):
         """Creates an inventory object for smartsolo geophones
-
         Args:
             dir (str, the directory of the inventory object): _description_. Defaults to "SS_inventory".
             fr_subDir (str, the dir subfolder for files from the smartsolo test rack): . Defaults to "SS_frTests".
             net_subDir (str, optional): the dir  subfolder for   data folders pulled from smartsolos. Defaults to "UofUmockTest1".
         """
+
         self.networks=[]
         self.dir = "SS_inventory"
-        self.fr_dir=dir+"/"+fr_subDir   
-        self.net_subDir = net_subDir         
-        self.loadNet(net_subDir)        
+        self.fr_dir=dir+"/"+fr_subDir
+        self.net_subDir = net_subDir
+        self.loadNet(net_subDir)
         super().__init__(self.networks)
+
     def loadNet(self,net_subDir):
         """generate a network object to attach on inventory from a netDir using data from folder within inventory dir
 
@@ -39,7 +41,8 @@ class SS_inventory(Inventory):
             netDir (string): Should contain datafiles loaded from any number of smartsolo devices deployed together
         """
         netDir = self.dir+"/"+net_subDir
-        self.networks.append(SS_net(netDir,self.fr_dir))
+        self.networks.append(SS_net(netDir,self))
+
 
     def pickWithPhasenet():    
         pass
@@ -87,15 +90,16 @@ class SS_net(Network):
     las_system = "epsg:26912"#what opentopology uses for a metric system in SLC
     transformer = Transformer.from_crs("EPSG:4326", "EPSG:26912")
     #laspy.read("topography/points.laz")
-    def __init__(self,dir, fr_dir, lidar_pc = "pc.las"):
+    def __init__(self,dir, inventory, lidar_pc = "pc.las", location = "NA"):
             self.dir = dir
             self.pc_dir = dir+"/"+lidar_pc
-            self.pc = laspy.read(self.pc_dir)
+            self.netName = dir.split('/')[-1]
             self.stations = []
+            self.inventory = inventory
             for sub in os.listdir(dir):
                 if sub.isnumeric():
-                    self.includeStation(dir+"/"+sub,fr_dir)
-                
+                    self.includeStation(dir+"/"+sub,inventory.fr_dir)
+            #self.pc = laspy.read(self.pc_dir)
             super().__init__(dir.split('/')[-1],self.stations)
             self.miny = min([s.latitude] for s in self.stations) [0]
             self.maxy = max([s.latitude] for s in self.stations) [0]
@@ -111,160 +115,303 @@ class SS_net(Network):
         las.write(self.dir+"/pc.las")
 
 
-    def includeStation(self,dir, fr_dir):
-        station = SS_Station(dir,fr_dir)
-        self.stations.append(station)
+    def saveNetStreams(self,net_subDir):
 
+    def includeStation(self,dir, fr_dir):
+        station = SS_Station(dir,fr_dir, self)
+        self.stations.append(station)
+    
     def findTopographies(self,format = "PointCloud"):
         url_findTops = "https://portal.opentopography.org/API/otCatalog?productFormat={}&minx={}&miny={}&maxx={}&maxy={}&detail=true&outputFormat=json&include_federated=true".format(format,self.minx,self.miny,self.maxx,self.maxy)        
         response = requests.get(url_findTops).json()
         return response
+    
     def checkAltSets():
         angle_floats = ["eCompass North", "Tilted Angle", "Roll Angle", "Pitch Angle"]
 
-    def plotStations():
-        pass
+    def genKML(self):
+        import simplekml
+        kml = simplekml.Kml()
+        for s in net.stations:
+            kml.newpoint(name = "SS_{}".format(s.serial_number), coords = [(s.longitude,s.latitude)])
+        kml.save(self.dir+"/GPS.kml")
 
     def compileTests():
         pass  
 
+    def getDistance(self,s1,s2):
+        c1 = self.transformer.transform(s1.longitude,s1.latitude)
+        c2 = self.transformer.transform(s2.longitude,s2.latitude)
+        return c2-c1
+    
+    def loadStreams_time(self,startTime,endTime):
+        for station in self.stations:
+            station.loadStream_time(startTime, endTime)
+
+    def loadStreams_number(self,number):
+        for station in self.stations:
+            station.loadStream_number(number)
+
+    def dump(self,addendum = '_'):        
+        os.mkdir(self.dir+addendum)        
+        self.inventory.write("dir/"+"station.xml",format = "stationxml", validate = True)        
+        for s in self.stations:
+            s.dump(dir)
+        
+    def decimateStreams(self,sample_rate = 100):
+        """Down sample data to sample_rate
+
+        Args:
+            freq_max (int, optional): _description_. Defaults to 100.
+        """
+        for station in self.stations:            
+            station.stream.decimateStream(sample_rate)
+
+    def plotLogNumericals(self, includeMemory = False):
+        refStation = self.stations[0]
+        numericSeries = refStation.numericSeries
+        if not includeMemory:
+            numericSeries = [key for key in numericSeries if refStation.typeKeys[key][0] != "Memory"]
+        n = len(numericSeries)        
+        
+        factors = [i for i in range(2,n) if n%i == 0]
+        if len(factors) == 0:
+            n = n+1
+            factors = [i for i in range(2,n) if n%i == 0]
+        d2 = factors[np.floor(len(factors)/2+0.5).astype(int)]        
+        fig,ax = plt.subplots(n//d2,d2)
+        for station in self.stations:
+            station.plotNumericals((fig,ax),includeMemory = includeMemory)
+        handles, labels = plt.gca().get_legend_handles_labels()
+        by_label = dict(zip(labels, handles))
+        fig.legend(by_label.values(), by_label.keys(),loc='outside upper right')        
+        fig.suptitle(self.stations[0].start_date + " Numerical Data for multiple stations")
+        plt.tight_layout()
+        plt.savefig(self.stations[0].start_date.replace('/','_')+"_{}_logNumericals.png".format(self.netName))    
+        plt.show()
+
+
 class SS_Station(Station):
     """
-    Extension of obspy Station that reads SmartSolo Files during construction
+    Extension of obspy Station that reads SmartSolo Files during construction,
+    and augments itself with XYZ SS_Channels 
     """
-    def __init__(self,dir, fr_dir):
+
+    def __init__(self,dir, fr_dir, network = None):
         """init function
 
         Args:
             dir (_type_): A folder containing files from a smartsolo device, 
               should contain a file DigiSolo.LOG, and files seis00**.MiniSeed
             fr_dir (_type_): A folder containing frequency responses to lookup data in
-        """
+        """        
         self.cycleTimes = []
+        print("loading from dir:" + dir)
+        self.dir = dir
+        self.network = network
+        self.fr_dir = fr_dir
         self.readLog(dir+"/DigiSolo.LOG")
+        #pass device info from log onto object
         super().__init__(self.serial_number, self.latitude, self.longitude, self.altitude)
-        r1 = R.from_euler('XYZ', [self.datStats["Roll Angle"]["mean"], self.datStats["Pitch Angle"]["mean"], self.datStats["eCompass North"]["mean"]], degrees=True)
+        for key in self.typeKeys:
+            if self.typeKeys[key][0] == 'DeviceInfo':
+                setattr(self,key,self.data[key][-1][1])
+        print(self.start_date)
+        
+        r1 = R.from_euler('XYZ', [self.datStats["roll_angle"]["mean"], self.datStats["pitch_angle"]["mean"], self.datStats["ecompass_north"]["mean"]], degrees=True)
         xyz = {'X':[1,0,0],'Y':[0,1,0],'Z':[0,0,1]}
         dips = {key:-90+np.arccos(np.dot(r1.apply(xyz[key]),[0,0,1]))*180/np.pi for key in xyz}
         azimuths = {key:np.arctan2(r1.apply(xyz[key])[0],r1.apply(xyz[key])[1])*180/np.pi for key in xyz}
         gains = {'X':self.channel_1_gain,'Y':self.channel_2_gain,'Z':self.channel_3_gain}
+        self.sample_rate = self.sample_rate/100
         for key in xyz.keys():
             channel = SS_Channel(self, fr_dir, key, dips[key],azimuths[key], gains[key])
             self.channels.append(channel)
+        
     def readTime(self,line):
        ###to read lines with time in solo logs
        line = re.findall('"([^"]*)"', line)[0]
        return datetime.strptime(line, "%Y/%m/%d,%H:%M:%S")
+    
         ### read lines with floats in solo logs
     def readFloat(self,line):
        return (re.findall("[-+]?(?:\d*\.*\d+)",line))    
     #read smartsolo log file 
+
     def readLog(self,logDir):
+        """reads smartsolo log files from directory
+           and stores the information as a dict that detects
+           data blocks and keys,
+           parses each key = value pairs a structure like {key:[(block time, value)]           
+           typeKeys to store each keys block and data type like {key:(key block, data type)}
+           and blockTimes as {blockKey:[block times]}
+        Args:
+            logDir (_type_): must contain the file DigiSolo.LOG
+        """
+
         with open(logDir) as f:
             f = f.readlines()
-        #read code, channel gains, serial number, start time, when gps syncs
-        gpsSyncs = [i for i in range(len(f)) if f[i] == "GPS Status = GPS Synchronization\n"]  #locate gps sync record areas\        
-        intKeys = ["Serial Number", "Sample Rate", "Channel 1 Gain", "Channel 2 Gain", "Channel 3 Gain"]            
-        self.headInts= {}
-        ####read int params and start date from log file
-        for i in range(gpsSyncs[0]):
-            line = f[i]
-            split = line.split(" = ")   
-            ## only for lines with one =  
-            if len(split) == 2:
-                key, value = split[0].strip(), split[1].strip()
-            else: continue
-            ##load int values and start date to variable
-            for intKey in intKeys:
-                if intKey in key: 
-                    vars(self)[intKey.replace(' ','_').lower()] = int(value)
-            if "Start Date" in key:
-                self.start_date = value[value.find("(")+1:value.find(")")][1:-1]
-            if "Anti-alias Filter" in key:
-                self.aaFilter = value
-        self.sample_rate = self.sample_rate/100
-            ######read gps logs
-        #load head ints to object variables
-
-        angle_floats = ["eCompass North", "Tilted Angle", "Roll Angle", "Pitch Angle"]
-        pos_floats = ["Longitude", "Latitude", "Altitude"]
-        other_floats = ["Sattelite Number"]
-        GPS_floats = angle_floats+pos_floats + ["Satellite Number"]
-        data = {key:[] for key in GPS_floats}
-        for row in gpsSyncs:
-            i = 1
-            key, value = "UTC Time", self.readTime(f[row+i])
-            self.cycleTimes.append(value)
-            while f[row+i+1] != "\n":
-                i+=1
-                key, value = f[row+i].split(" = ")
-                key, value = key.strip(), value.strip()
-                if key in GPS_floats:
-                    if value =="Unknown":
-                        data[key].append(np.NaN)
+        blockHeads = [n for n in range(len(f)) if f[n].startswith("[")]
+        data = {}#associates keys to values
+        typeKeys = {}
+        readKeys = {"int":       lambda x: int(x),
+                    "string":    lambda x: x.replace("\"",""),#remove quotes
+                    "doubleList":lambda x: [float(x) for x in s],
+                    "double":    lambda x: float(x),
+                    "unknown":   lambda x: x
+                    }#how to read values for different sorts of keys
+        ######build data into organized dicts
+        blockTimes = {}
+        for i in range(len(blockHeads)):    
+            header = re.match(r"([A-za-z]+)", f[blockHeads[i]][1:]  , re.I).group()
+            top = blockHeads[i]+1
+            blockHeads.append(len(f))
+            bot = blockHeads[i+1]    
+            splits = [line.split("=")   for line in f[top:bot] if "=" in line]
+            splits = {split[0].strip().lower().replace(" ","_").replace("-","_"):split[1].strip() for split in splits}    
+            #so time can be seperated as the index 
+            if "utc_time" in splits.keys():        
+                time = self.readTime(splits.pop("utc_time"))
+                if header not in blockTimes:
+                    blockTimes[header] = []
+                blockTimes[header].append(time)
+            else:
+                time = None
+            for (key,value) in splits.items():        
+                #identify what sort of value the key pairs to
+                if key not in data:        
+                    if value.isnumeric():                
+                        typeKeys[key] = (header,"int")
+                    elif value[0] == "\"":                
+                        typeKeys[key] = (header,"string")
+                    elif re.match("[-+]?(?:\d*\..*\d+)",value):
+                        s = value.split(',')
+                        if len(s)>=2:                    
+                            typeKeys[key] = (header,"doubleList")
+                        else:                    
+                            typeKeys[key] = (header,"double")
                     else:
-                        data[key].append(float(value))  
+                            typeKeys[key] = (header,"unknown")
+                    data[key]  = []
+                #finally, read and store the value where it belongs
+                parsedValue = readKeys[typeKeys[key][1]](value)
+                data[key].append((time, parsedValue))
+        self.data = data
+        self.typeKeys = typeKeys
+        self.blockTimes = blockTimes
+        #angle_floats = ["eCompass North", "Tilted Angle", "Roll Angle", "Pitch Angle"]
+        #pos_floats = ["Longitude", "Latitude", "Altitude"]                        
+        blockIntervals = {}
         #check for possible unwanted gap in time 
-        diff = np.diff(self.cycleTimes)
-        mode = stats.mode(diff)
-        dtMax = np.argmax(diff)
-        has_timeGap = diff[dtMax]>mode*3
-        if has_timeGap:
-            print("Time gap of {} from".format(diff[dtMax]) + self.start_date + " detected in {}".format(ser))
-            print()
-            start = dtMax+1
-        else:
-            start = 0
-        #remove outliers
-        for key in GPS_floats:
-            vals = data[key]
-            q1 = np.nanpercentile(data[key], 25)
-            q3 = np.nanpercentile(data[key], 75)
+        for timeSeries in blockTimes.items():
+            diff = np.diff(timeSeries[1])
+            mode = stats.mode(diff)
+            dtMax = np.argmax(diff)            
+        if diff[dtMax]>mode*3:
+            
+            print("Time gap of {} from".format(diff[dtMax]) +  " detected in {}".format(timeSeries[0]))    
+               
+       
+        self.numericSeries = [key for key in typeKeys if len(data[key])>4 and (typeKeys[key][1] == 'int' or typeKeys[key][1] == 'double')]
+        stdevs = {}
+        datStats = {}
+        ##### further process numerical data  #remove outliers, get some stats
+        for key in self.numericSeries:
+            vals = [x[1] for x in data[key]]
+            q1 = np.nanpercentile(vals, 25)
+            q3 = np.nanpercentile(vals, 75)
             IQR = q3-q1
             lwr_bound = q1-(3*IQR)
             upr_bound = q3+(3*IQR)
             for i in range(len(vals)):            
                 if vals[i] < lwr_bound or vals[i] > upr_bound:
-                    vals[i] = np.nan
-        #with outliers gone save the datat to object
+                    data[key][i] = (data[key][i][0],None)
+            stdevs[key] = np.nanstd(vals)
+            datStats[key] = {'mean': np.nanmean(vals),
+                             'std': stdevs[key],
+                             'mean_err': stdevs[key]/np.sqrt(len(np.array(vals)[~np.isnan(vals)]))
+                            }
+        #with outliers gone save the data to the object
         self.data = data
-        ####Get statistics on calculated data
-        stdevs = {key:np.nanstd(data[key]) for key in GPS_floats}
-        datStats = {key:{'mean': np.nanmean(data[key]),
-              'std': stdevs[key],
-              'mean_err': stdevs[key]/np.sqrt(len(np.array(data[key])[~np.isnan(data[key])]))
-              }
-        for key in GPS_floats}
-        self.GPS_floats = GPS_floats
+        ####Get statistics on calculated data                        
         self.datStats = datStats
-        self.latitude = self.datStats['Latitude']['mean']
-        self.altitude = self.datStats['Altitude']['mean']
-        self.longitude = self.datStats['Longitude']['mean']
+        self.latitude = self.datStats['latitude']['mean']
+        self.altitude = self.datStats['altitude']['mean']
+        self.longitude = self.datStats['longitude']['mean']        
+        self.serial_number = data["serial_number"][-1][1]
         #convert to meters
-        for key in ["Latitude","Longitude"]:
+        for key in ["latitude","longitude"]:
                 datStats[key]['m_err'] = datStats[key]['mean_err']*111139
-                datStats['Altitude']['m_err'] = datStats['Altitude']['mean_err']
+                datStats['altitude']['m_err'] = datStats['altitude']['mean_err']    
+        def decimate(sample_rate):
+            scale = int(np.floor(self.sample_rate/sample_rate))
+            if scale >16:
+                scale = 16
+            self.stream.decimate(scale)
 
-    def plotLog(self):
-    ####plot data    
-    ###prime factor len(data)
-        fig, ax = plt.subplots(4,2, figsize=(10,10))
-        for i in range(4):
-            for j in range(2):
-                ax[i,j].plot(times[start:], data[self.GPS_floats[2*i+j]][start:])
-                ax[i,j].set_title(self.GPS_floats[2*i+j])
-                ax[i,j].set_xlabel("Time")
-                ax[i,j].set_ylabel(self.GPS_floats[2*i+j])
-        fig.suptitle(self.startDate + " GPS Data for Station {}".format(self.ser))
-        plt.tight_layout()    
-        plt.savefig(self.startDate.replace('/','_')+"_{}_logPlot.png".format(self.ser))    
+    
+        
+    def plotNumericals(self, subplots = None,includeMemory = False):
+        ########plot for numerical data        
+        #find squarest factors for numberSeries
+        # 
+        if includeMemory:   
+            numericSeries = self.numericSeries
+        else:
+            numericSeries = [key for key in self.numericSeries if self.typeKeys[key][0] != "Memory"]
+        n = len(numericSeries)
+        if subplots == None:
+            factors = [i for i in range(2,n) if n%i == 0]
+            if len(factors) == 0:#in case number is prime
+                n == n+1
+                factors = [i for i in range(2,n) if n%i == 0]
+            d2 = factors[np.floor(len(factors)/2+0.5).astype(int)]
+            fig,ax = plt.subplots(n//d2,d2)
+        else:
+            fig,ax = subplots
+            d2=ax.shape[1]
 
+        #plot out with that grid
+        for i in range(n):
+            series = numericSeries[i]
+            (x,y) = list(zip(*self.data[series]))    
+            axPick = ax[i//d2,i%d2]
+            axPick.plot(x,y,label = self.script_name)
+            axPick.set_ylabel(series)
+            axPick.set_xticklabels(axPick.get_xticklabels(),rotation = 30)
+                    
+        
+        if subplots == None:
+            fig.suptitle(self.start_date + " Numerical Data for Station {}".format(self.serial_number))
+            plt.savefig(self.start_date.replace('/','_')+"_{}_logPlot.png".format(self.serial_number))    
+            plt.tight_layout()                   
+            plt.show()
+        ########plot for string data
+        #textSeries = [key for key in typeKeys if len(dataDict[key])>2 and (typeKeys[key][1] == 'string')]
+    def loadStream_number(self, number):
+        pass
+        stream = obspy.read(self.dir+"/seis00{}*.MiniSeed".format(number))       
+        #correct the metadata written on the stream to match the station 
+        for trace in stream:
+            id = trace.id.split(".")
+            id[0] = self.network.code
+            id[1] = self.code
+            trace.id = ".".join(id)
+        stream.code = number
+        self.stream = stream        
+        return stream
+    
     def adjAtt(self):
         r1 = R.from_euler('XYZ', [datStats["Roll Angle"]["mean"], datStats["Pitch Angle"]["mean"], datStats["eCompass North"]["mean"]], degrees=True)
         xyz = {'X':[1,0,0],'Y':[0,1,0],'Z':[0,0,1]}
         dips = {key:-90+np.arccos(np.dot(r1.apply(xyz[key]),[0,0,1]))*180/np.pi for key in xyz}
         azimuths = {key:np.arctan2(r1.apply(xyz[key])[0],r1.apply(xyz[key])[1])*180/np.pi for key in xyz}
     #####get dips and azimuths of basis vectors under rotation r1
+
+    def setFRresponse(self):
+        for c in self.channels:
+            c.setFR_SStestCSV(self.fr_dir)
+
     def predictPrecision(n_days =35):
         nd_precKey = '{}day_mPrecision'.format(n_days)
         nd_precKey_d = '{}day_degPrecision'.format(n_days)
@@ -300,6 +447,13 @@ class SS_Station(Station):
         plt.legend()
         plt.show()
 
+    def dumpStream(self,net_dir):
+        dir = os.path.join(net_dir,self.serial_number)
+        if not os.dir.exists():
+            os.mkdir(net_dir)
+        self.stream.write("stream{}.miniseed".format(self.stream.code),format = "MSEED")
+        
+        
 class SS_Channel(Channel):
     """This represents an x,y, or z component of a 3c smartsolo device
 
@@ -310,20 +464,22 @@ class SS_Channel(Channel):
     def __init__(self, station, frTest_dir,  axes, dip, azimuth, gain):
         self.TD = 3.31009*10**(-6) #default ,for transfer function
         self.KH=-8.66463*10**-6 # default, for transfer function
-        self.Dd = 0.70722 #default damping from manual
-        self.Gd = 78.54688#default sensitivity from manual
-        self.gain = gain
-        self.aaFilter = station.aaFilter
+        #self.Dd = 0.70722 #default damping from manual
+       # self.Gd = 78.54688#default sensitivity from manual
+        self.gain = gain        
         self.axes = axes
+        self.station = station
+        self.aaFilter = self.station.anti_alias_filter_type
         super().__init__(                         
         "LH"+axes,
-        location_code = station.code,
+        location_code = "",
         longitude = station.longitude,
         latitude = station.latitude,
         dip = dip,
         azimuth = azimuth%360,
         elevation = station.elevation,
         sample_rate = station.sample_rate,
+        #location = "({},{})".format(station.latitude, station.longitude),
         depth = 0)
         self.setFR_SStestCSV(frTest_dir)
     def setFR_nrl():
@@ -363,17 +519,19 @@ class SS_Channel(Channel):
 
     def setFR_SStestCSV(self,dir):
         tests = pd.read_csv(dir+'/tests.csv')
-        d = {"SN": int(self.location_code), "sample_rate": self.sample_rate, "aaFilter": self.aaFilter, "gain": self.gain}
+        d = {"SN": int(self.station.code), "sample_rate": self.sample_rate, "aaFilter": self.aaFilter, "gain": self.gain}
         matches = tests[(tests[d.keys()] == d.values()).all(axis=1)]#find test with matching parameters
         if len(matches) == 0:
-            raise Exception("Error, no matching test!")        
+            return None
+            raise Exception("Error, no matching test!") 
+            
         match = matches.sort_values("Test Time").iloc[-1]#get latest test
         self.sensitivity = match[self.axes + " S.Sensitivity.(V/m/s)"]
         self.damping = match[self.axes + " S.Damping"]
-        self.w0 = match[self.axes + " N.Freq (Hz)"]
+        self.w0 = match[self.axes + " N.Freq (Hz)"]*2*np.pi
         self.response = Response.from_paz([0],self.getPoles(), self.sensitivity)        
         
-    def getPoles(self,w0 = 31.4159):
+    def getPoles(self):
         """Assumes the transfer function from SmartSolo, 
         H(s) = s^2/((1+T_D*s)*(s^2+2*T_D*D_d*w_0*s+w_0^2)+KH*s^2   
         default values from manual
@@ -419,3 +577,17 @@ def plot_rotated_axes(ax, r, name=None, offset=(0, 0, 0), scale=1):
 
 inv = SS_inventory()
 net = inv.networks[0]
+s = net.stations[0]
+print(s.start_date)
+net.plotLogNumericals()
+#s1 = net.stations[2]
+#st = s.loadStream(8)
+#st1 = s1.loadStream(4)
+#from datetime import timedelta
+#t_start = st[0].stats.endtime-timedelta(0,24000)
+#t_start2 = st[0].stats.endtime-timedelta(0,10000)
+#t_stop = st[0].stats.endtime-timedelta(0,5000)
+#st.trim(t_start,t_stop)
+
+
+
