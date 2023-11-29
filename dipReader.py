@@ -5,7 +5,7 @@ import statistics as stats
 import os
 import matplotlib.pyplot as plt
 import pandas as pd 
-import pytesseract
+#import pytesseract
 from scipy.ndimage import convolve
 from scipy.signal import find_peaks
 import re
@@ -16,233 +16,292 @@ black = (0,0,0)
 red = (0,0,255)
 green = (0,255,0)
 
-(os.path.dirname(os.path.abspath(__name__)))
-raw_img = cv2.imread( 'dipMeters/dipmeter.jpg')
+class dipmeterLog():
+      def __init__(self, dir):  
+        raw_img = cv2.imread(dir)
+        greyImg = cv2.cvtColor(raw_img,cv2.COLOR_BGR2GRAY)#cv2 reads this format
+        blurDist = 30
+        grad =[1/2,0,-1/2]
+        k_hLine=np.outer(np.convolve(grad,grad),np.convolve(np.ones(blurDist)/blurDist,np.ones(5)/5))
+        h = cv2.threshold(cv2.filter2D(greyImg,ddepth = -1,kernel = k_hLine),100,255,cv2.THRESH_BINARY)[1]
+        v = cv2.threshold(cv2.filter2D(greyImg,ddepth = -1,kernel = k_hLine.transpose()),100,255,cv2.THRESH_BINARY)[1]
+        #plt.imshow(cv2.morphologyEx(v, cv2.MORPH_CLOSE, np.ones((round(blurDist)))))        
+        ######################
+        #locate and cutout the grid position
+        vSums = list(cv2.reduce(v.transpose(),dim=0,rtype=cv2.REDUCE_SUM, dtype=cv2.CV_32S)[0])
+        cut1T = findFirstPeak(vSums,300) 
+        cut1B = len(vSums) -findFirstPeak(np.array(list(reversed(vSums))))
+        hSums = list(cv2.reduce(h[cut1T:cut1B],dim=0,rtype=cv2.REDUCE_SUM, dtype=cv2.CV_32S)[0])
+        cut1L = findFirstPeak(hSums) 
+        cut1R = len(hSums) -findFirstPeak(np.array(list(reversed(hSums))))
+        cut1 = (slice(cut1T,cut1B),slice(cut1L,cut1R))
+        imgCut1 = greyImg[cut1]
+        vCut1 = v[cut1]
+        hCut1 = h[cut1]
 
-def getCircleAngle(img, c, extra = 15):
-        """getCircleAngle finds the angle of the tail of a circle in an image
+        #display results
 
-        Args:
-            img (_type_): the image containing the circle
-            c (list): the x,y,r of the circle
-            extra (int, optional): _description_. Defaults to 15.
+        bottom = 4937
+        top = 3023
+        dist = bottom-top
+        y_v = vSums[top:bottom]/max(vSums)
+        x_v = np.array(range(dist))*(3/dist)
+        y_h = hSums[cut1L:cut1R]/max(hSums)
+        x_h = np.array(range(cut1L,cut1R))*(3/h.shape[1])
 
-        Returns:
-            _type_: _description_
-        """
-        x = c[0]
-        y = c[1]
-        r = c[2]        
-        #box around circle
-        l = int(np.floor(x-r)-extra)
-        if l<0:
-                l=0
-        right = int(np.ceil(x+r)+extra)
-        t = int(np.floor(y-r)-extra)
-        b = int(np.ceil(y+r)+extra)
-        c_imgG =img[slice(t,b),slice(l,right)]        
-        x = x-l
-        y = y-t
-        ####draw a series of lines,
-        #rotated a pixel around the circle tosee how much overlap it has to the image,
-        #pick the angle where line overlaps the least
-        angleStep = 1/(r+extra)
-        angle =0
-        matchAngle=0
-        best = 10000      
-        r = r+1#make sure line is out of circle
-        while angle<2*np.pi:
-                x_frac = np.sin(angle)
-                y_frac = -np.cos(angle)
-                x0 = int(np.around(x+r*x_frac))
-                x1 = int(np.around(x+(r+extra)*x_frac))
-                x12 = int(np.around(x+(r+2)*x_frac))
-                y0 = int(np.around(y+r*y_frac))
-                y1 = int(np.around(y+(r+extra)*y_frac))                
-                y12 = int(np.around(y+(r+2)*y_frac))                
-                #lined = cv2.line(c_imgG.copy(),(x0,y0),(x1,y1),255,4)
-                #lined = cv2.line(c_imgG.copy(),(x0,y0),(x12,y12),255,6)
-                lined = cv2.line(c_imgG.copy(),(x0,y0),(x1,y1),0,1)                
-                diff = cv2.subtract(c_imgG,lined)
-                diff = np.sum(diff**2)
-                if diff<best:
-                        best=diff
-                        matchAngle = angle
-                angle=angle+angleStep                
-        return matchAngle
+        dropImg_v = cv2.morphologyEx(v, cv2.MORPH_DILATE, np.ones([3,3]))[top:bottom].transpose()
+        dropImg_h = cv2.morphologyEx(h, cv2.MORPH_DILATE, np.ones([3,3]))[top:bottom]
+        fig, ax = plt.subplots(2, figsize = (18,12))
+        fig.suptitle("Picking Boundaries at the top of a Filtered Tapole Plot", fontsize = 20)
+        ax[0].imshow(dropImg_v, extent = (0,3,0,1), cmap = 'binary')
+        ax[0].set_ylabel('Percent Max Horizontal Sum',fontsize = 15)
+        ax[0].set_xlabel('Vertical Distance (Transposed)',fontsize = 15)
+        xy = ((cut1T-top)*3/dist,y_v[cut1T-top])
+        ax[0].scatter([xy[0]],[xy[1]])
+        ax[0].axhline(y = 0.4, color = 'forestgreen', linestyle = '--',label = 'threshold') 
+        ax[0].annotate('Top',xy = xy,xytext =(xy[0]*0.95, xy[1]+0.1), arrowprops = dict(facecolor ='forestgreen', shrink = 0.05),size = 15)
+        ax[0].set_xticks([])
+        ax[0].plot(x_v, y_v, color = 'firebrick')
+        ax[0].legend()
+        ax[1].imshow(dropImg_h, extent = (0,3,0,1), cmap = 'binary')
+        xy_l = (cut1L*3/h.shape[1], y_v[cut1L])
+        xy_r = (cut1R*3/h.shape[1], y_v[cut1R])
+        ax[1].annotate('Left', xy = xy_l, xytext =(xy_l[0]*0.95, xy_l[1]+0.1), arrowprops = dict(facecolor ='forestgreen', shrink = 0.05),size = 15)
+        ax[1].annotate('Right', xy = xy_r, xytext =(xy_r[0]*1.05, xy_r[1]+0.1), arrowprops = dict(facecolor ='forestgreen', shrink = 0.05),size = 15)
+        ax[1].axhline(y = 0.4, color = 'forestgreen', linestyle = '--',label = 'threshold') 
+        ax[1].axvline(x = xy[0], color = 'forestgreen', linestyle = '--',label = 'leftbound') 
+        ax[1].set_ylabel('Percent Max Vertical Sum',fontsize = 15)
+        ax[1].set_xlabel('Horizontal Distance',fontsize = 15)
+        ax[1].set_xticks([])
+        ax[1].plot(x_h,y_h,color = 'firebrick')
+        ax[1].legend(fontsize = 10)
+        plt.tight_layout()
+        plt.show()
 
-def openCmismatch(img,c):
-        x = int(np.around(c[0]))
-        y = int(np.around(c[1]))       
-        r = c[2]
-        box = circleBoxRegion(img,c)
-        box =cv2.threshold(box,127,255,cv2.THRESH_BINARY)[1]#black or white
-        #diff = cv2.subtract(box,cv2.circle(cv2.circle(box,[y,x],r,white,-1),[y,x],r,black,1))#compare to white circle with outer black        
-        return err
+        def getCircleAngle(img, c, extra = 15):
+                """getCircleAngle finds the angle of the tail of a circle in an image
+
+                Args:
+                img (_type_): the image containing the circle
+                c (list): the x,y,r of the circle
+                extra (int, optional): _description_. Defaults to 15.
+
+                Returns:
+                _type_: _description_
+                """
+                x = c[0]
+                y = c[1]
+                r = c[2]        
+                #box around circle
+                l = int(np.floor(x-r)-extra)
+                if l<0:
+                        l=0
+                right = int(np.ceil(x+r)+extra)
+                t = int(np.floor(y-r)-extra)
+                b = int(np.ceil(y+r)+extra)
+                c_imgG =img[slice(t,b),slice(l,right)]        
+                x = x-l
+                y = y-t
+                ####draw a series of lines,
+                #rotated a pixel around the circle tosee how much overlap it has to the image,
+                #pick the angle where line overlaps the least
+                angleStep = 1/(r+extra)
+                angle =0
+                matchAngle=0
+                best = 10000      
+                r = r+1#make sure line is out of circle
+                while angle<2*np.pi:
+                        x_frac = np.sin(angle)
+                        y_frac = -np.cos(angle)
+                        x0 = int(np.around(x+r*x_frac))
+                        x1 = int(np.around(x+(r+extra)*x_frac))
+                        x12 = int(np.around(x+(r+2)*x_frac))
+                        y0 = int(np.around(y+r*y_frac))
+                        y1 = int(np.around(y+(r+extra)*y_frac))                
+                        y12 = int(np.around(y+(r+2)*y_frac))                
+                        #lined = cv2.line(c_imgG.copy(),(x0,y0),(x1,y1),255,4)
+                        #lined = cv2.line(c_imgG.copy(),(x0,y0),(x12,y12),255,6)
+                        lined = cv2.line(c_imgG.copy(),(x0,y0),(x1,y1),0,1)                
+                        diff = cv2.subtract(c_imgG,lined)
+                        diff = np.sum(diff**2)
+                        if diff<best:
+                                best=diff
+                                matchAngle = angle
+                        angle=angle+angleStep                
+                return matchAngle
+
+        def openCmismatch(img,c):
+                x = int(np.around(c[0]))
+                y = int(np.around(c[1]))       
+                r = c[2]
+                box = circleBoxRegion(img,c)
+                box =cv2.threshold(box,127,255,cv2.THRESH_BINARY)[1]#black or white
+                #diff = cv2.subtract(box,cv2.circle(cv2.circle(box,[y,x],r,white,-1),[y,x],r,black,1))#compare to white circle with outer black        
+                return err
         
-def findFirstPeak(sums,smoothDist = 51):        
-        """findFirstPeak finds the first peak in a 1d array of sums
+        def findFirstPeak(sums,smoothDist = 51):        
+                """findFirstPeak finds the first peak in a 1d array of sums
 
-        Args:
-            sums (list): a list of sums
-            smoothDist (int, optional): the distance to smooth the sums over. Defaults to 50.
-                                                                                                                        
-        Returns:
-            _type_: _description_
-        """                                                                                                                                                                     
-        sums = np.convolve(sums, np.ones(smoothDist))
-        maxSum = sums.max()
-        val =0
-        pos = 0 
-        while val< 0.4*maxSum:
-                val =sums[pos]
-                pos = pos+1
-        firstPeak = pos - smoothDist#offset convolution distance
-        return firstPeak
+                Args:
+                sums (list): a list of sums
+                smoothDist (int, optional): the distance to smooth the sums over. Defaults to 50.
+                                                                                                                                
+                Returns:
+                _type_: _description_
+                """                                                                                                                                                                     
+                sums = np.convolve(sums, np.ones(smoothDist))
+                maxSum = sums.max()
+                val =0
+                pos = 0 
+                while val< 0.4*maxSum:
+                        val =sums[pos]
+                        pos = pos+1
+                firstPeak = pos - smoothDist#offset convolution distance
+                return firstPeak
 
-def reinterpolateOutliers(l):
-        """A script that detects outliers in a list downmatches and replaces them with nearby values"""
-        diffs = np.diff(l)
-        for i  in range(len(diffs)):                                                           
-                if abs(diffs[i])>2:
-                        print("outlier found in straightening")
-                        diffs[i]=0
-        return l[0]+np.cumsum(diffs)
-                        
+        def reinterpolateOutliers(l):
+                """A script that detects outliers in a list downmatches and replaces them with nearby values"""
+                diffs = np.diff(l)
+                for i  in range(len(diffs)):                                                           
+                        if abs(diffs[i])>2:
+                                print("outlier found in straightening")
+                                diffs[i]=0
+                return l[0]+np.cumsum(diffs)
+                                
 
-def straighten_v(img_in,img_vf, matchDist_h = 100, return_xShifts = False):   
-        """Straighten_v transform detects shift in the columns of vertical lines
-        from top to bottom,
-        and returns the image with a correction applied
+        def straighten_v(img_in,img_vf, matchDist_h = 100, return_xShifts = False):   
+                """Straighten_v transform detects shift in the columns of vertical lines
+                from top to bottom,
+                and returns the image with a correction applied
 
-        Args:
-            img_in (2d array): The image to be straightened
-            img_vf (2d array): image to determine the straightening shifts from, an image filtered for vertical lines
-            matchDist_h (int, optional): half The fraction of the image to be used as template 
+                Args:
+                img_in (2d array): The image to be straightened
+                img_vf (2d array): image to determine the straightening shifts from, an image filtered for vertical lines
+                matchDist_h (int, optional): half The fraction of the image to be used as template 
 
-        Returns:
-            2d Array: straightened image, same shape as input image
-        """
-        matchDist = matchDist_h*2+1
-        matchStart = 0
-        downMatches = cv2.filter2D(img_vf.astype(float),ddepth=-1,kernel = img_vf[matchStart:matchStart+matchDist])
-        xShifts = [np.argmax(row) for row in downMatches]
-        xShifts = xShifts-min(xShifts)
-        xShifts = reinterpolateOutliers(xShifts)
-        maxShift = max(xShifts)
-        straight= np.vstack([np.array(list((img_in[i,xShifts[i]: -maxShift+xShifts[i]-1])))for i in range(0, len(xShifts))])
-        straight = np.pad(straight,[(0,0),(0,maxShift+1)], constant_values = 255)
-        if return_xShifts:
-                return (straight,xShifts)
-        else:
+                Returns:
+                2d Array: straightened image, same shape as input image
+                """
+                matchDist = matchDist_h*2+1
+                matchStart = 0
+                downMatches = cv2.filter2D(img_vf.astype(float),ddepth=-1,kernel = img_vf[matchStart:matchStart+matchDist])
+                xShifts = [np.argmax(row) for row in downMatches]
+                xShifts = xShifts-min(xShifts)
+                xShifts = reinterpolateOutliers(xShifts)
+                maxShift = max(xShifts)
+                straight= np.vstack([np.array(list((img_in[i,xShifts[i]: -maxShift+xShifts[i]-1])))for i in range(0, len(xShifts))])
+                straight = np.pad(straight,[(0,0),(0,maxShift+1)], constant_values = 255)
+                if return_xShifts:
+                        return (straight,xShifts)
+                else:
+                        return straight
+
+
+        def straighten_h(img_in,img_hf, matchDist_h = 50, return_yShifts = False):   
+                """Straighten_h  detects shift in the rows of horizontal lines
+                from left to right,
+                and returns the image with a correction applied
+
+                Args:
+                img_in (2d array): The image to be straightened
+                img_hf (2d array): image to determine the straightening shifts from, an image filtered for horizontal lines
+                matchDist_h (int, optional): half the portion of the image to be used as template
+                return_yShifts (bool, optional): _description_. Defaults to False.
+
+                Returns:
+                2d Array: straightened image, same shape as input image
+                """                                                                                                                                             
+                matchDist = matchDist_h*2+1
+                
+                img_hfCut= img_hf.transpose()# transpose to make horizontal lines vertical
+                downMatches = cv2.filter2D(img_hfCut.astype(float),ddepth=-1,kernel = img_hfCut[:matchDist])#compare template from top to bottom                                                                                                                                                                                                                                                                                         
+                yShifts=  [np.argmax(row) for row in downMatches] #find the shift in each column by the best template matchlocation
+                yShifts = yShifts-min(yShifts)#make shifts relative
+                maxShift = max(yShifts) #find the maximum shift
+                straight = np.array([img_in[yShifts[i]: -maxShift+yShifts[i]-1,i] for i in range(0, len(yShifts))]) #apply the shift to each column
+                straight = straight.transpose() #transpose back to horizontal
+                straight = np.pad(straight,[(0,maxShift+1),(0,0)], constant_values = 255) #pad the image to make up for the shift
+                if return_yShifts: #
+                        return (straight,yShifts)
+                else:                                                                                                                                                                                           
+                        return straight
+
+        def straighten(img_in, img_vf, img_hf, matchDist_h = 100, return_shifts = True):
+                """Straighten straightens an image by detecting the shift in the columns of vertical lines
+                Args:
+                img_in (_type_): the image to be straightened
+                img_hf (_type_): the image filtered for horizontal lines to predict the shift in the vertical direction
+                img_vf (_type_): the image filtered for vertical lines to predict the shift in the horizontal direction
+                matchDist_h (int, optional): half the portion of the image to be used as template for matching in the horizontal direction
+                """
+                if return_shifts:
+                        img_in, shifts_v = straighten_h(img_in,img_hf, matchDist_h = matchDist_h,return_yShifts=return_shifts)
+                        img_in, shifts_h = straighten_v(img_in,img_vf, matchDist_h = matchDist_h,return_xShifts=return_shifts)    
+                        return (img_in, shifts_h, shifts_v)
+                else:
+                        img_in = straighten_v(img_in,img_vf, matchDist_h = matchDist_h,return_xShifts=return_shifts)
+                        img_in = straighten_h(img_in,img_hf, matchDist_h = matchDist_h,return_yShifts=return_shifts)        
+                        return img_in
+
+
+        def applyShifts(img_in, shifts, axis = 0):
+                """apply the shifts to an image
+
+                Args:
+                img_in (_type_): _description_
+                shifts (_type_): _description_
+                """
+                shifts = reinterpolateOutliers(shifts)
+                maxShift = max(shifts) 
+                if axis == 0:
+                        straight = np.array([img_in[i,shifts[i]: -maxShift-1+shifts[i]] for i in range(len(shifts))])
+                        straight = np.pad(straight,[(0,0),(0,maxShift+1)], mode = 'median')
+                else: 
+                        straight = np.array([img_in[shifts[i]: -maxShift[i]-1+shifts[i],i] for i in range(len(shifts))])
+                        straight = np.pad(straight,[(0,maxShift+1),(0,0)], mode = 'median')
                 return straight
 
 
-def straighten_h(img_in,img_hf, matchDist_h = 50, return_yShifts = False):   
-        """Straighten_h  detects shift in the rows of horizontal lines
-        from left to right,
-        and returns the image with a correction applied
+                                
+                [reCircle(straight3, c, canparam = 1, sensScale = 0.5) for c in circles]
+                
 
-        Args:
-            img_in (2d array): The image to be straightened
-            img_hf (2d array): image to determine the straightening shifts from, an image filtered for horizontal lines
-            matchDist_h (int, optional): half the portion of the image to be used as template
-            return_yShifts (bool, optional): _description_. Defaults to False.
-
-        Returns:
-            2d Array: straightened image, same shape as input image
-        """                                                                                                                                             
-        matchDist = matchDist_h*2+1
-        
-        img_hfCut= img_hf.transpose()# transpose to make horizontal lines vertical
-        downMatches = cv2.filter2D(img_hfCut.astype(float),ddepth=-1,kernel = img_hfCut[:matchDist])#compare template from top to bottom                                                                                                                                                                                                                                                                                         
-        yShifts=  [np.argmax(row) for row in downMatches] #find the shift in each column by the best template matchlocation
-        yShifts = yShifts-min(yShifts)#make shifts relative
-        maxShift = max(yShifts) #find the maximum shift
-        straight = np.array([img_in[yShifts[i]: -maxShift+yShifts[i]-1,i] for i in range(0, len(yShifts))]) #apply the shift to each column
-        straight = straight.transpose() #transpose back to horizontal
-        straight = np.pad(straight,[(0,maxShift+1),(0,0)], constant_values = 255) #pad the image to make up for the shift
-        if return_yShifts: #
-                return (straight,yShifts)
-        else:                                                                                                                                                                                           
-                return straight
-
-def straighten(img_in, img_vf, img_hf, matchDist_h = 100, return_shifts = True):
-        """Straighten straightens an image by detecting the shift in the columns of vertical lines
-        Args:
-            img_in (_type_): the image to be straightened
-            img_hf (_type_): the image filtered for horizontal lines to predict the shift in the vertical direction
-            img_vf (_type_): the image filtered for vertical lines to predict the shift in the horizontal direction
-            matchDist_h (int, optional): half the portion of the image to be used as template for matching in the horizontal direction
-        """
-        if return_shifts:
-                img_in, shifts_v = straighten_h(img_in,img_hf, matchDist_h = matchDist_h,return_yShifts=return_shifts)
-                img_in, shifts_h = straighten_v(img_in,img_vf, matchDist_h = matchDist_h,return_xShifts=return_shifts)    
-                return (img_in, shifts_h, shifts_v)
-        else:
-                img_in = straighten_v(img_in,img_vf, matchDist_h = matchDist_h,return_xShifts=return_shifts)
-                img_in = straighten_h(img_in,img_hf, matchDist_h = matchDist_h,return_yShifts=return_shifts)        
-                return img_in
+        def showGridClearing(img_grid,img_clear):
+                top = 1600
+                bottom = 2100
 
 
-def applyShifts(img_in, shifts, axis = 0):
-        """apply the shifts to an image
+        def unifyRegions(reg1,reg2):
+                """addRegions combines two regions
 
-        Args:
-            img_in (_type_): _description_
-            shifts (_type_): _description_
-        """
-        shifts = reinterpolateOutliers(shifts)
-        maxShift = max(shifts) 
-        if axis == 0:
-                straight = np.array([img_in[i,shifts[i]: -maxShift-1+shifts[i]] for i in range(len(shifts))])
-                straight = np.pad(straight,[(0,0),(0,maxShift+1)], mode = 'median')
-        else: 
-                straight = np.array([img_in[shifts[i]: -maxShift[i]-1+shifts[i],i] for i in range(len(shifts))])
-                straight = np.pad(straight,[(0,maxShift+1),(0,0)], mode = 'median')
-        return straight
+                Args:
+                reg1 (list): the first region
+                reg2 (list): the second region
+
+                Returns:
+                list: the combined region
+                """
+                return [(min(r1[0],r2[0]),max(r1[1],r2[1])) for r1,r2 in zip(reg1,reg2)]
 
 
-                        
-        [reCircle(straight3, c, canparam = 1, sensScale = 0.5) for c in circles]
-        
+        def sub(cut1,cut2):
+                """subtracts the inner cut from the outer cut
+                Args:
+                cut1 (list): a list of slices
+                cut2 (list): a list of slices
 
-def showGridClearing(img_grid,img_clear):
-        top = 1600
-        bottom = 2100
-
-
-def unifyRegions(reg1,reg2):
-        """addRegions combines two regions
-
-        Args:
-            reg1 (list): the first region
-            reg2 (list): the second region
-
-        Returns:
-            list: the combined region
-        """
-        return [(min(r1[0],r2[0]),max(r1[1],r2[1])) for r1,r2 in zip(reg1,reg2)]
-
-
-def sub(cut1,cut2):
-        """subtracts the inner cut from the outer cut
-        Args:
-            cut1 (list): a list of slices
-            cut2 (list): a list of slices
-
-        Returns:
-            list: a list of slices
-        """
-        outer = cut1
-        inner = cut2
-        if cut1[0].start>cut2[0].start:
-                outer = cut2
-                inner = cut1
-        elif cut1[0].start==cut2[0].start and cut1[1].start>cut2[1].start:
-                outer = cut2
-                inner = cut1
-        return [slice(c1.start-c2.start,c1.stop-c2.start) for c1,c2 in zip(inner,outer)]
+                Returns:
+                list: a list of slices
+                """
+                outer = cut1
+                inner = cut2
+                if cut1[0].start>cut2[0].start:
+                        outer = cut2
+                        inner = cut1
+                elif cut1[0].start==cut2[0].start and cut1[1].start>cut2[1].start:
+                        outer = cut2
+                        inner = cut1
+                return [slice(c1.start-c2.start,c1.stop-c2.start) for c1,c2 in zip(inner,outer)]
 
 
 
@@ -250,30 +309,9 @@ raw_img = cv2.imread( 'dipMeters/dipmeter.jpg')
 greyImg = cv2.cvtColor(raw_img,cv2.COLOR_BGR2GRAY)#cv2 reads this format
 
 
-                  
 
-blurDist = 30
-grad =[1/2,0,-1/2]
-k_hLine=np.outer(np.convolve(grad,grad),np.convolve(np.ones(blurDist)/blurDist,np.ones(5)/5))
-h = cv2.threshold(cv2.filter2D(greyImg,ddepth = -1,kernel = k_hLine),100,255,cv2.THRESH_BINARY)[1]
-v = cv2.threshold(cv2.filter2D(greyImg,ddepth = -1,kernel = k_hLine.transpose()),100,255,cv2.THRESH_BINARY)[1]
 
-v = (cv2.morphologyEx(v, cv2.MORPH_CLOSE, np.ones((round(blurDist)))))
-plt.imshow(v)
-plt.show()#restore cirles
 
-######################
-#locate and cutout the grid position
-vSums = list(cv2.reduce(v.transpose(),dim=0,rtype=cv2.REDUCE_SUM, dtype=cv2.CV_32S)[0])
-cut1T = findFirstPeak(vSums,300) 
-cut1B = len(vSums) -findFirstPeak(np.array(list(reversed(vSums))))
-hSums = list(cv2.reduce(h[cut1T:cut1B],dim=0,rtype=cv2.REDUCE_SUM, dtype=cv2.CV_32S)[0])
-cut1L = findFirstPeak(hSums) 
-cut1R = len(hSums) -findFirstPeak(np.array(list(reversed(hSums))))
-cut1 = (slice(cut1T,cut1B),slice(cut1L,cut1R))
-imgCut1 = greyImg[cut1]
-vCut1 = v[cut1]
-hCut1 = h[cut1]
 
 ############identify the vertical gridlines on cut1
 straight1, shifts_h,shifts_v = straighten(imgCut1, vCut1, hCut1)
@@ -389,7 +427,12 @@ circles = np.concatenate((circles_c,circles_o))
 ##########convert pixel to depth/dip and plot
 depth_t = 1340
 depth_b = 2350
+
 dfT = pd.DataFrame(circles,columns = ['xPixel','yPixel','R'])
+
+yDiff = dfT["yPixel"].sort_values().diff().mode()[0]#find the y separation between tadpoles
+
+
 hPeaks = hPeaks3[0]
 dfT['upLine'] = [np.argmax(1/(y-hPeaks)) for y in dfT['yPixel']]
 dfT['leftLine'] = [np.argmax(1/(x-peaks_x2)) for x in dfT['xPixel']]
@@ -399,6 +442,8 @@ dfT['leftLine'] = dfT['leftLine'].replace(40,0)
 dfT['depth'] = np.around(dfT.apply(lambda x:depth_t+ 10*(x['upLine']+(x['yPixel']- hPeaks[int(x['upLine'])])/(hPeaks[int(x['upLine'])+1]-hPeaks[int(x['upLine'])])),axis = 1)*2)/2
 peaks_x2 = np.append(peaks_x2,straight3.shape[1])
 dfT['dip'] = dfT.apply(lambda x: 2*(x['leftLine']+   (x['xPixel']-peaks_x2[int(x['leftLine'])])/(peaks_x2[int(x['leftLine'])+1]-peaks_x2[int(x['leftLine'])])),axis = 1)
+l1 = dfT.apply(lambda row: (row.xPixel+row.R*np.sin(row.dip_azimuth*np.pi/180),(row.yPixel-row.R*np.cos(row.dip_azimuth*np.pi/180))),axis = 1)
+l2 = dfT.apply(lambda row: (row.xPixel+(row.R+15)*np.sin(row.dip_azimuth*np.pi/180),(row.yPixel-(row.R+15)*np.cos(row.dip_azimuth*np.pi/180))),axis = 1)
 hl = pd.read_csv('hardListed.csv')
 plt.scatter(hl.depth,hl.dip,label = "source")
 plt.scatter(dfT.depth,dfT.dip,marker="x",label = "interpolation")
@@ -456,9 +501,19 @@ plt.ylabel('dip azimuth')
 plt.title("original azimuth record")
 #plt.text("avg percent error = {}".format(err))
 plt.show()
-errCircs = (dfT[bothT.err>0.1][["xPixel","yPixel","R"]])
-showErrs = noGrid.copy()
-[cv2.circle(showErrs, np.around((c[:2])).astype(int),int(c[2])+5,0,3) for c in errCircs.values]
+errCircs = (bothT[bothT.err>0.1][["xPixel","yPixel","R"]])
+errLines = (bothT[bothT.err>0.1][["xPixel","yPixel","R"]])
+l1 = dfT.apply(lambda row: (round(row.xPixel+row.R*np.sin(row.dip_azimuth*np.pi/180)),round(row.yPixel-row.R*np.cos(row.dip_azimuth*np.pi/180))),axis = 1)
+l2 = dfT.apply(lambda row: (round(row.xPixel+(row.R+15)*np.sin(row.dip_azimuth*np.pi/180)),round(row.yPixel-(row.R+15)*np.cos(row.dip_azimuth*np.pi/180))),axis = 1)
+c1 = bothT.dropna().apply(lambda row: (round(row.xPixel+(row.R)*np.sin(row.dip_azimuth_y*np.pi/180)),round(row.yPixel-(row.R)*np.cos(row.dip_azimuth_y*np.pi/180))),axis = 1)
+c2 = bothT.dropna().apply(lambda row: (round(row.xPixel+(row.R+15)*np.sin(row.dip_azimuth_y*np.pi/180)),round(row.yPixel-(row.R+15)*np.cos(row.dip_azimuth_y*np.pi/180))),axis = 1)
+
+color = cv2.cvtColor(noCirc.copy(),cv2.COLOR_GRAY2RGB)
+showErrs = color.copy()
+[cv2.circle(showErrs, np.around((c[:2])).astype(int),int(c[2])+5,[255,0,0],2) for c in errCircs.values]
+[cv2.line(showErrs, l[0],l[1],[0,0,255],2) for l in zip(l1,l2)]
+[cv2.line(showErrs, l[0],l[1],[0,255,0],2) for l in zip(c1,c2)]
+plt.imshow(cv2.addWeighted(showErrs,0.5,color,0.5,0))
 cv2.imwrite('showErrs.jpg',showErrs)
 cv2.imwrite('showErrsCut.jpg',showErrs[plotSlice])
 
