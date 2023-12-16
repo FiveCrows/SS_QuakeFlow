@@ -1,0 +1,12 @@
+matplotlib 
+openpyxl
+pyproj
+obspy
+scipy
+pandas
+laspy pip install laspy, for lidar
+cartopy (pip install cartopy)
+simplekml, (pip install simple kml) # to view as a kml document
+utm, (pip install utm) # to transform projections 
+ee, pip install earthengine-api # for google earth utilities
+    source ~/.bashrc

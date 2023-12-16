@@ -1,0 +1,95 @@
+Fixed bugs in frequency response:
+    found that correctly defining the fr requires specifying zeros at [0,0], not just [0]
+    found that one of the transfer function roots needs to be removed to provide an accurate fr
+
+    found that the miniseed files are generated specifying mV values, not V, by chatting with the SmartSolo support 
+    while trying to figure why the stream values are so large when the geophones are supposed to respond around 75V s/m
+    decided to configure detrending fr during seismic cut alongside attitude adjustment, and just not have to worry about it later. 
+    
+
+    confirmed, amplitude is A*10 pow(0.05*db_gain) by comparing 12 gain with 18 gain control along side , 1/10 pow (0.05*6) = 0.501
+    >>> div = [p[0].std()/p[1].std() for p in zip(picks1,picks2)]
+    >>> sum(div)/len(div)
+    0.5740710448415786
+    >>> div = [d for d in div if d<1]# there were some outliers 
+    >>> sum(div)/len(div)
+    0.5095672198056005
+    interestingly not exact but, pretty close
+    so technically, what smartsolo calls 1db is actually 1/2 db
+    it should be 0.501. 0.509 is almost 2 percent off so what accounts for that error? is there something wrong with the attitude adjustment? 
+    or is it how much they are dug into the ground? 
+    would it help to clear out noise?
+    statistics.stdev(div) = 0.03591435848866288
+    
+    I would like to have these miniseed files formatted in clear units once and for all. And I'd like it tagged on the metadata, but I don't know where to set the tag
+    I can always put it in the filename if nothing else... 
+    not data quality, that's reserved for:  (highest) Q > D > R (lowest).
+    obspy only writes its own, very specific attributes to the metadata, which, apparently, doesn't include units. no wonder it took me so long just to figure out the smartsolo mseeds run mV and not V 
+    filename it is, I guess. Apparrently despite the fact that Geosciences want to live in their own seperate world of conventions for practically everything, including measuring angles clockwise
+    and the completely absurd convention of log10 anywhere, actually specifiying units properly in their datasets or even mentioning them at all  for that matter is out of the question.   
+    a decibel is half a decibel, a volt is a mV, a degree is a minus degree +90 ,  a logarithm is a logarithm times 2.309, and should anyone want a place to save any additional metadata on their datasets about any of this, only the filename is acceptable. there sure are a lot of great things to learn from geophysics! 
+    I don't want this headache, so I'm coding just a conversion to SI units, Volts, meters, seconds, right from the beginning, though I am a little worried that downscales the numbers by something like 10 pow (9), and even though the miniseed encoding is FLOAT64 specifying precision on anything, ever, is also out of the question for geophysicists, apparently . 
+
+    dt = [cc.xcorr_3c(s_ref,pickStream2.select(station = s.code), 200,full_xcorr=True) for s in net.stations]#code to find arrival time differences for those stations 
+    dt has outliers. It turns out sometimes the highest cross correlation peak is actually shifted over an extra wavelength when the wave pattern has poor coherence across geophones. not good. 
+    shortening the time window could help fix this, but the proper time window depends on frequency, distance, it's not trivial. I need a method for picking time windows. 
+    
+    note that matched filter processing  actually cross correlates in fourier space. 
+    I still don't really entirely understand MFP, but ultimately it's the algorithm we're going to need for this. 
+    so I've been working on understanding such signall processing and eikonal solving methods. 
+
+
+"Phase differences are generally described in the form of the so-called Cross Spectral Density Matrix (CSDM). The CSDM, denoted by K, 
+is the frequency domain equivalent of the time-domain broad-band cross-correlations between all sensors. 
+It contains the autocorrelation and intercorrelation between sensors in its diagonal and off-diagonal terms, respectively."
+
+
+"In practice at a given frequency, we use a time window of duration T = 4 periods. This means that we obtain a single localization for the dominant seismic source for each time interval T."
+
+
+Why couldn't I just use gamma? 
+Gamma is not for for densely packed arrays. It doesn't assume waveform coherence. it requires sources localized nearby each other to solve eikonal. it might be functional but ultimately its not what we want. 
+clustering events isn't really the big challenge when the stations are so densely packed that travel time across array is much shorter than time difference between events, and gamma assumes the event distance is much greature than the array aperature,
+which isn't always going to be true in our applications. Bartlett MFP is the way, and yet I don't quite understand the math yet. 
+I need to understand the match, and then write the code. Hurry or not, trying to skip the math and the gun is always a mistake..
+ all that ever does is make a big mess. 
+ It just is going to also require a little more struggle understanding the complexities of signal processing. 
+Kind of a shame because I spent a lot of time formatting data sets to be processed through gamma, and understanding how the gamma alg works. Well, I can still use it, 
+but even working the data into gamma is going to require some cross correlation. 
+
+It might also be worth considering rescanning full datasets with the cross-correlation templates for the potential to pick up additional seismic signals. 
+
+Wilber3-- I already have the other events pulled from the web and stored in a dataset, but I can't match events that haven't been localized by working out the math for the proper algorithms.  it's just not going to work like that. 
+whether I pull them from Wilber3 or geological survey.,  I can't just list out a thousand events to find ones that match because they are near the same time because there are near 1000 of them, and so some theres  a good change some are going to match just by mere coincedence. 
+It's overfitting, and it's just not how one goes about doing science.  
+
+plant some flowers, and the pretty flowers will come, but the roots gotta grow with patience first,  or the whole thing just gonna whither and die without a root system large enough to support it. 
+We need to be solving the math on this rigorously and properly. 
+I understand theres an art to writing papers with half baked results, 
+but in the end half baked research makes for a half baked paper, no matter how well it's written out.
+Infact, if the science isn't done right, than the better its written about the more obvious it just becomes that it wasnt done right. 
+
+So I'd really like to solve the MFP math first to work the proper implementation because that's practically what every other paper dealing with densely spaced arrays has done for their processing. 
+that's bridging the gap in the difference between algorithms  that work on dense arrays like ours vs standard processing for wide arrays, and algorithms also need to be catored for local vs nonlocal events
+
+I've written this code that can find the files that pull a geophone and run phasenet to get seismic picks. 
+it can take those seismic picks and find the files that contain data over the same time interval in all the other geophones, select that data, adjust it as needed, list it out, generate metadata files so it's all indexed, 
+store them in a nicely ordered directory subdirectory format to load later and
+plot them against eachother, allowing the user to specify a seismic pick and see the data cut for all 12 geophones during the time of that seismic pick, and calculate cross correlations between them to compare arrival times, 
+but that's where the processing math gets more sophisticated and needs to be really worked out. The code is almost there. My math however, isn't ready 
+These papers, for example: 
+https://www.mdpi.com/1424-8220/20/5/1374
+
+https://pdf.sciencedirectassets.com/272413/1-s2.0-S0888327000X00283/1-s2.0-S0888327096900667/main.pdf?X-Amz-Security-Token=IQoJb3JpZ2luX2VjEBQaCXVzLWVhc3QtMSJIMEYCIQCoQ50eBq0nYTXzHR4LLK1QGjLeTxF79yjpapJ0vs71%2BwIhALB3DfeBg%2FhO762Q%2B%2BlNb5GDVSI7QFV0yLAZE6wUlqtPKrMFCE0QBRoMMDU5MDAzNTQ2ODY1IgwKckuOisJMT6pEWNMqkAWAZlk5F5wu10d1zL56dRs9E9Ap5NHTVfaKwubXZ27rf1yDq5F8kR1qelbDatgxldEtjQqiVfccsIPCzAMxS1uDZwqD%2Fx72fXbk6ET6IpjDhUYP0LzW2jdL3Wl2pmfHCGhPPqYqcKC48oAMhR46ttue8MuepPFYghJVKlfAsGgwgZKihlGNTvJ3rwLm7GkbaH14Xi3FpaOUwGpB8653J4zsQtJYg07bfBpBRGUkaLkR2UQqAS9fKZhXtp68NOvwTN%2ByCc6CHi2TvhwovxsZWVT2Tw2eDZe3gPs4ZTM6WJH%2B8YWdX2ZqaSNoOaY6jTMS4aP3CjkXLGUX6%2FbUntlUkxHmsAQUi6Gvz12s4DV2HJHdf%2FbKhkmTgM%2FSlQOEtn8QqMU2DF2ZgZBbE2Sqwv45Aa2eRqvJIDvkDy7xGuneCf%2Ben3pkZ8zJ2Y1hMSlUJl%2BQ%2B6TwM3mRqXxU0br12TZsIWpO5x6ewYjeS3RVnescb5Mr9ho0efBttFDwilGl0ADbW1S7YTVSaXTaCWYhngZNOHfxe05xSs2BOsM0b2KGkkByrLepaOctGWToTeXz1uCFGeJO57ww0%2BGeT5xOZ2rIxm%2BBpi9Eb%2F6gufdx%2F10sre9gX%2FlnngsOjhXqcNb7Wu9IeV37PJQAKa6zBMJ0%2Fl%2BffhebP5AHCk5QB%2F1hzXllQWqCYSH3GyBSQRIyqOjVGyZDNUnWOBMifSy218TmzaWCr82RZf1fJyXJThN1MUZ7sQLMl7KJn3k3oJ%2BnQEzvOuICRusaTTID7LTNrE67DMR3IRAG30sV%2FVHQVBD9M1TSjk5g%2F2FOYl%2BU4n5Bn55PhOjc1vdhL8jbAauiQVjbJ8a9iqemTUMMiYRiAnBsHb81K2loRTD3oJWqBjqwAQ127tCZ6RfIx1INIPq0KxnRCF0AUAWyEI2Ufupkbb8oDUOcAqyQuWSRBcKBDG2dzP2cSz2M%2FkolAfhMbDGqhl6BJ0ircPBF2vZ7U8ikq69sTiFiREVqz%2BxYodc7YKtVYDzwMYW8A5t0%2Fj5DIfnblGMGRc0hkKh3k9HGIbrh0ZGnvePITR7dX6L9Ym%2By2NX1SGO8sfqpb%2FS5Hihgb%2BSzTRKQ1Tt3iUW7%2F%2BAeRl56lE9J&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Date=20231103T210852Z&X-Amz-SignedHeaders=host&X-Amz-Expires=300&X-Amz-Credential=ASIAQ3PHCVTY3LINT52A%2F20231103%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Signature=e3fc95eabf5a30f0ffc8ad7e7adbc38f51bab145e01b6a1f984a19953793fb33&hash=f925caa98f8aa658473395bd22257cc5a399e860e913226643836df7e4f20520&host=68042c943591013ac2b2430a89b270f6af2c76d8dfd086a07176afe7c76c2c61&pii=S0888327096900667&tid=spdf-52e6207b-45dc-45a5-b7b4-033d8d86d87e&sid=351e069e28277945958998277241243879aagxrqa&type=client&tsoh=d3d3LnNjaWVuY2VkaXJlY3QuY29t&ua=131d585057505f575a50&rr=82079856781f6444&cc=us
+
+https://agupubs.onlinelibrary.wiley.com/doi/10.1029/2021GL095996#grl63836-bib-0039
+
+https://pubs.geoscienceworld.org/geophysics/article/88/5/WB71/624364/Monitoring-induced-microseismicity-in-an-urban 
+
+https://www.researchgate.net/publication/241562481_Understanding_the_dynamics_of_a_geyser_from_temporal_monitoring_of_seismic_source
+
+https://academic.oup.com/gji/article-abstract/187/1/385/562800
+
+Barteltt MFP, that's what practically every research group uses for these sort of surveys because that's what actually works for densely spaced seismic array, so 
+we're going to have to work it out sooner or later or  any paper I write without it is just going to be a garbage paper. Any paper I write with it is going to be scientific gold. 
+

@@ -373,8 +373,10 @@ class SS_Station(Station):
                     else:
                             typeKeys[key] = (header,"unknown")
                 #finally, read and store the value where it belongs
+                print()
                 parsedValue = readKeys[typeKeys[key][1]](value)
                 data[key].append((time, parsedValue))
+                
         self.data = data
         self.typeKeys = typeKeys
         self.blockTimes = blockTimes
@@ -795,7 +797,8 @@ def write_PickStreams(streams):
 
 #startTime = UTCDateTime(2023,10,13,16,8,47,1)-timedelta(seconds = 0)
 #endTime = UTCDateTime(2023,10,13,17,47,1)+timedelta(seconds = 000)
-if __name__ == "__main__":
+#if __name__ == "__main__":
+if False:
     inv = SS_inventory("SS_inventory")
     net = inv[0]
     net.SSarray.py()
@@ -827,3 +830,4 @@ if __name__ == "__main__":
 
 
 
+inv = SS_inventory(net_subDir = "desert_deployment")

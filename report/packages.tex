@@ -1,0 +1,130 @@
+\usepackage[english]{babel}
+\addto{\captionsenglish}{\renewcommand*{\appendixname}{}}
+\usepackage{csquotes}
+\usepackage{blindtext}  %Has more functionalities than lipsum
+
+
+%--------------------------------------------------------
+%                         Pagestyle
+%--------------------------------------------------------
+\usepackage{graphicx}                   %Enables graphical features
+\usepackage{svg}                        %Enables the use of svg's
+
+\usepackage[a4paper, width=160mm, top=25mm, bottom=25mm]{geometry}  %Fullpage layout working with fancyhdr
+
+\usepackage{ragged2e}                   %Enables different text alignment options
+\usepackage[]{microtype}                %Compacts text
+\usepackage{float}
+\usepackage{lscape}                     %Enable landscape mode
+\usepackage{multicol}                   %Allows multiple colums
+
+\usepackage[most]{tcolorbox}            %Enables the creation of fancy boxes around text
+
+%\usepackage{pdfpages}                   %Uncomment if you want to import pdfs
+
+%   OWN PREFERENCES
+\setlength{\parindent}{0pt}             %Indent size before paragraph
+\setlength{\belowcaptionskip}{-10pt}    %Whitespace below the captions
+
+%-----------------------------------------------------------------------------------
+%                                              Colors
+%-----------------------------------------------------------------------------------
+\usepackage{xcolor} %Enables colors
+
+% OWN COLORS
+\definecolor{titleColor}{RGB}{16,37,66}
+\definecolor{authorColor}{RGB}{16,37,66}
+\definecolor{abstractColor}{HTML}{efe9e2}
+\definecolor{sectionColor}{HTML}{9b0801}
+
+\definecolor{black}{HTML}{000000}
+\definecolor{white}{HTML}{ffffff}
+
+%---------------------------------------------------------------------------------
+%                                              Title spacing
+%---------------------------------------------------------------------------------
+\usepackage{titlesec}
+
+% titleformat{keyword}{textoptions}{boxoptions + input text}{spacing between number and title}
+\titleformat{\section}{\normalfont\bfseries\color{black}}{\rlap{\color{sectionColor}\rule[-0.2cm]{\linewidth}{0.65cm}} \thesection}{1em}{}
+
+\titlespacing*{\section}{0pt}{10pt}{5pt}            %Increase the spacing around the title
+
+
+%-----------------------------------------------------------------------------------
+%                                              Header/Footer
+%-----------------------------------------------------------------------------------
+\usepackage{fancyhdr}                   %Enables the editting of headers and footers
+\usepackage{lastpage}                   %Enables the lastpage command
+
+\pagestyle{fancy}                       %Set style to fancy
+\fancyhf{}                              %Clears current header and footer
+
+\rhead{Right top}                       %Create right header text
+\lhead{\today}                          %Create left header text
+\chead{Center text}                     %Create center header text
+
+\rfoot{Page \thepage \hspace{1pt} of \pageref{LastPage}}    %Create right footer text
+
+\renewcommand{\headrulewidth}{0pt}      %Set header line thickness to 0 pt [default=1pt]
+\renewcommand{\footrulewidth}{0pt}      %Set footer line thickness to 0 pt [default =0pt]
+
+
+%---------------------------------------------------------------------------------
+%                                              Math Mode
+%---------------------------------------------------------------------------------
+%Section for inserting certain symbols
+
+\usepackage{pifont}                 % http://ctan.org/pkg/pifont
+\usepackage{mathtools}
+\usepackage{amsmath}
+
+% OWN MARKS/ SYMBOLS
+\newcommand{\cmark}{\ding{51}}      %checkmark
+\newcommand{\xmark}{\ding{55}}      %cross
+
+
+%---------------------------------------------------------------------------------
+%                                              Figures
+%---------------------------------------------------------------------------------
+\usepackage{wrapfig}
+\usepackage{caption}
+\captionsetup[figure]{font=scriptsize}
+\usepackage{subcaption}
+\usepackage{adjustbox}  %Enables the use of left/right/inner/outer and center for the position of figures
+\usepackage{float}
+
+\usepackage[font=small]{caption} %Make captions use a smaller font than text
+
+\usepackage{chngcntr}
+\counterwithin{figure}{section}
+\counterwithin{table}{section}
+
+%---------------------------------------------------------------------------------
+%                                              Bibliography/ Referencing
+%---------------------------------------------------------------------------------
+\usepackage[style=ieee]{biblatex}   %De-comment if you have a references file
+\addbibresource{references.bib}
+\usepackage{hyperref}
+\usepackage{url}                    %Will make the url look like a url
+\renewcommand*{\bibfont}{\footnotesize}
+
+%---------------------------------------------------------------------------------
+%                                               Tables
+%---------------------------------------------------------------------------------
+\usepackage{array}
+\usepackage{arydshln}   %Enables user to create dashed lines
+\usepackage{multirow}
+
+%Define some new commands with struts (to increase whitespace)
+\newcommand\T{\rule{0pt}{2.6ex}}       % Top strut
+\newcommand\B{\rule[-1.2ex]{0pt}{0pt}} % Bottom strut
+
+
+%---------------------------------------------------------------------------------
+%                                               Random
+%---------------------------------------------------------------------------------
+\usepackage[titletoc]{appendix}     %Enables the use of appendix
+\usepackage{enumitem}               %Allows for commands such as noitemsep (disable item seperation in lists)
+
+\usepackage{todonotes}              %Enables todo notes (\todo and \listoftodos)
