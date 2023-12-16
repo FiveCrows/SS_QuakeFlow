@@ -1,0 +1,46 @@
+\section{Introduction}
+Data from a seismic array presents multiple identification challenges, including:
+\begin{itemize}    
+    \subitem b) Detecting seismic arrival events for the whole array
+    \subitem c) Through greater precision, detecting differences in arrival time between geophones 
+    \subitem a) Determining direction of wave displacement 
+    \subitem c) Detecting seismic arrival amplitudes
+    \subitem d) Determining the type of waves arriving
+    \item Clustering arrivals by seismic events 
+    \item Determining earthquake times and  hypocenters
+\end{itemize}
+
+Machine learning systems provide new and effective algorithms
+for overcoming some of the challenges of seismic processing. A convolutional neural-net system
+with a "Unet" architecture, phasenet, is capable of identifying both wave arrival time and amplitude from seismic data with high accuracy. 
+However, even well trained machine learning systems must be fed well processed and structered data if they are to be effective. 
+Therefore, scripting with pythons well designed and documented package for seismic array processing, Obspy, must be done before smartsolo data can be
+processing through Phasenet, which uses obspy as well. Additionally, accurate as phasenet is for triggering on seismic arrivals, 
+its only optimized for sample rates near 100hz, but some tasks may require a much higher resolution. For example, if a wave velocity field is desired 
+from a seismic survey over a geographic region no larger than a few kilometers in diameter, high frequency sampling is required 
+ to resolve the miniscule differences in time it will take surface waves, which travel several kilometers a second, to traverse relatively small distances between geophones. 
+Even with deployments ranging several kilometers, previous experiments with measuring shear wave splitting have demonstrated that sampling at a rate of 500hz and months worth of data greatly improved 
+the precision they needed to measure directionally anisotropic differences in the seismic velocity field,  a precision of less than ten meters a second.
+On the other hand, weeks of high frequency data can easily fill up hundreds of gigabytes for an entire seismic array, and becomes rather cumbersome to process if not preconditioned effectively. 
+A straightforward method of such preconditioning is to run a prelimenary phasenet event detection for data from a single geophone, compressed to 100hz, in order to identify the short time windows during which 
+seismic waves are traversing the array. This way, a cross correlation between high frequency station datastreams can be applied over these narrowed time windows determing the seismic arrival differentials one event at a time. 
+ 
+
+There are also other operations datastreams must be preprocessed with in order for results to be accurate that would be rather cumbersome across large high frequency datasets, excepting they are only applied to short event time windows. 
+For example, each smartsolos station records its own roll, pitch, and yaw. These measurements are required to perform a geophone attitude adjustment, which means to transform the wavestreams from geophone centric X,Y,Z to a  N,Z,E alignment. 
+ Even if great effort is put into deploying the devices with a perfect orientation,they are likely to be at least a little crooked. and besides, Phasenet won't even process wavestream channels unless their labeled as N,Z, and E components. 
+
+Theres a separate sort of calibration is necessary for the amplitude of seismic events to be accurately predicted: the sensitivity of wavestream response to ground motion as a function of frequency. Referred to as the transfer function, it varies between each geophone and each of their three components. 
+Phasenet needs these transfer functions defined and formatted in a technical xml file which can be generated in python once the seismic array is structured with obspy.
+There are also other reasons to structure seismic arrays with obspy also has its own advantages, beyond working with other systems such as phasenet. It's provides algorithms to plot wavestreams, spectrograms, transfer functions and  maps. 
+It has all the signal processing routines most projects will need, and its structure also help keep workflow organized.
+Once the seismic data is successfully formated through obspy to be fed into phasenet, the phasenet itself reads and preprocesses data with obspy as well.
+Automating the clustering of seismic arrivals is done with an algorithm called GaMMa.  GaMMa also makes predictions for event time and hypocenter that can be further improved later with another algorithm called hypoDD.
+Others before me have already scripted an automation of this entire flow, from reading miniseeds and frequency response files to predicting the details of a seismic event, and even scripted them to run on the cloud for live detection 
+in a project called QuakeFrow. Unfortunately, the differences between the sort of networks QuakeFlow was written for and SmartSolo arrays mean seismic processing can not be entirely trivialized through QuakeFlows algorithms.
+$IGU-16HR_3C$ SmartSolos experimented with in this report do not broadcast their data, but only store their data in solid state memory. The additional work described in this report was done because the data formatted by the SmartSolos gps and other systems required
+its own unique scripting. Therefore much of the code simply has to do with with reading and processing
+the smartsolo data into obspy. The reward of such work is when users of SmartSolo arrays are able to deploy them where and when they please, read the data off a SmartSolo connection rack, and then simply run a python script which 
+accurately automates the entire process of reading data logs, transfer functions, and miniseed files to predicting event times, hypocenters, velocity fields, and more, while also providing options for maps and figures to display results for experiments. 
+
+
